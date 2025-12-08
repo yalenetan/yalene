@@ -1,5 +1,5 @@
 // ----------------------
-// 地层数据（真实周口店+扩展字段）
+// 地层数据（真实周口店+扩展字段）  （完全保留）
 // ----------------------
 let layers = [
   {name:"Layer 1", type:"表土层", age:"近现代", top:131.00, bottom:129.50, density:[1.2,1.4], gravel:[0,2], moisture:[8,12], magnetic:[0.1,0.3], comp:"表层混合土壤", note:"受现代扰动明显"},
@@ -22,52 +22,60 @@ const minElevation = 95.00;
 const X_LEFT = 94.5;
 const X_RIGHT = 118.5;
 
-// 平滑变量
-let smooth = { density:0,targetDensity:0, gravel:0,targetGravel:0, moisture:0,targetMoisture:0, magnetic:0,targetMagnetic:0 };
+// 平滑变量（保持原逻辑）
+let smooth = { density:0, targetDensity:0, gravel:0, targetGravel:0, moisture:0, targetMoisture:0, magnetic:0, targetMagnetic:0 };
 let lastUpdate = 0;
-let interval = 300;
+let interval = 300; // ms
 
 // 摄像头 & canvas 句柄
 let cam;
+let cameraStarted = false;
 
 function setup() {
   let c = createCanvas(windowWidth, windowHeight);
   c.id('hudCanvas');
-  c.style('position','absolute'); c.style('top','0px'); c.style('left','0px'); c.style('z-index','2'); c.style('background','transparent');
-  textFont('monospace'); noCursor();
+  textFont('monospace');
+  noCursor();
 
-  // 初始化 smooth
+  // init smooth values to first layer midpoints
   let L0 = layers[0];
-  smooth.density   = (L0.density[0] + L0.density[1]) / 2;
-  smooth.gravel    = (L0.gravel[0]  + L0.gravel[1])  / 2;
-  smooth.moisture  = (L0.moisture[0]+ L0.moisture[1]) / 2;
-  smooth.magnetic  = (L0.magnetic[0]+ L0.magnetic[1]) / 2;
+  smooth.density   = (L0.density[0]+L0.density[1])/2;
+  smooth.gravel    = (L0.gravel[0]+L0.gravel[1])/2;
+  smooth.moisture  = (L0.moisture[0]+L0.moisture[1])/2;
+  smooth.magnetic  = (L0.magnetic[0]+L0.magnetic[1])/2;
 
-  // 点击按钮启动摄像头
-  const startBtn = document.getElementById('startCam');
-  startBtn.addEventListener('click', async () => {
+  // 创建按钮
+  let btn = createButton("启动摄像头");
+  btn.id("startCam");
+  btn.style("position","absolute");
+  btn.style("top","40%");
+  btn.style("left","50%");
+  btn.style("transform","translate(-50%, -50%)");
+  btn.style("padding","14px 28px");
+  btn.style("font-size","18px");
+  btn.style("z-index","10");
+  btn.mousePressed(async () => {
     await startCamera();
-    startBtn.style.display = 'none';
+    btn.hide();
+    cameraStarted = true;
   });
+}
+
+function windowResized(){
+  resizeCanvas(windowWidth, windowHeight);
+  if (cam) cam.size(windowWidth, windowHeight);
 }
 
 async function startCamera() {
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(d => d.kind === 'videoinput');
-    let backCamera = videoDevices.find(d => d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("rear"));
-    let deviceId = backCamera ? backCamera.deviceId : undefined;
-
     const constraints = {
       video: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
+        facingMode: { exact: "environment" }, // 后置摄像头
         width: { ideal: 1280 },
-        height: { ideal: 720 },
-        facingMode: deviceId ? undefined : { exact: "environment" }
+        height:{ ideal: 720 }
       },
       audio: false
     };
-
     cam = createCapture(constraints);
     cam.id('cameraElement');
     cam.elt.setAttribute('playsinline','');
@@ -77,18 +85,13 @@ async function startCamera() {
     cam.style('left','0px');
     cam.style('z-index','1');
     cam.style('object-fit','cover');
-  } catch (e) {
+  } catch(e){
     console.error("Camera error:", e);
   }
 }
 
-function windowResized(){
-  resizeCanvas(windowWidth, windowHeight);
-  if(cam) cam.size(windowWidth, windowHeight);
-}
-
 function findLayerByElevation(elev){
-  for(let l of layers) if(elev<=l.top && elev>=l.bottom) return l;
+  for (let l of layers) if (elev<=l.top && elev>=l.bottom) return l;
   return layers[layers.length-1];
 }
 
@@ -97,6 +100,8 @@ function draw(){
   drawGrid();
   drawFrameLines();
   drawCrosshair();
+
+  if (!cameraStarted) return; // 摄像头未启动就不计算数据
 
   const cx = width/2;
   const cy = height/2;
@@ -107,7 +112,7 @@ function draw(){
 
   let currentLayer = findLayerByElevation(elevation_center);
 
-  if(currentLayer && millis()-lastUpdate>interval){
+  if (currentLayer && millis()-lastUpdate>interval){
     lastUpdate = millis();
     smooth.targetDensity   = random(currentLayer.density[0],currentLayer.density[1]);
     smooth.targetGravel    = random(currentLayer.gravel[0],currentLayer.gravel[1]);
@@ -142,70 +147,14 @@ function draw(){
 
   noStroke();
   fill(0,255,120,120);
-  textAlign(CENTER); textSize(12);
-  text("PLACE TARGET UNDER THE CROSSHAIR TO SCAN", width/2, height-18);
+  textAlign(CENTER);
+  textSize(12);
+  text("PLACE TARGET UNDER THE CROSSHAIR TO SCAN", width/2, height - 18);
 }
 
-// ---------- 绘制函数 ----------
-function drawGrid(){
-  stroke(0,255,100,50);
-  for(let x=0;x<width;x+=40) line(x,0,x,height);
-  for(let y=0;y<height;y+=40) line(0,y,width,y);
-}
-
-function drawFrameLines(){
-  stroke(0,255,80); strokeWeight(2);
-  let m=20;
-  line(m,m,m+60,m); line(m,m,m,m+60);
-  line(width-m,m,width-m-60,m); line(width-m,m,width-m,m+60);
-  line(m,height-m,m+60,height-m); line(m,height-m,m,height-m-60);
-  line(width-m,height-m,width-m-60,height-m); line(width-m,height-m,width-m,height-m-60);
-}
-
-function drawCrosshair(){
-  stroke(0,255,0); strokeWeight(2);
-  let cx = width/2, cy = height/2;
-  line(cx-20,cy,cx+20,cy);
-  line(cx,cy-20,cx,cy+20);
-  noFill();
-  stroke(0,255,120,40); strokeWeight(1.5);
-  ellipse(cx,cy,36+sin(millis()/400)*4,36+sin(millis()/400)*4);
-}
-
-function drawHUD(i){
-  fill(0,255,100); textSize(12); textAlign(LEFT);
-  let marginX=18, marginY=24;
-  let t="";
-  t+="SCAN DATA\n--------------------------------------\n";
-  t+="Elevation:        "+i.elevation.toFixed(2)+" m\n";
-  t+="Depth:            "+i.depth.toFixed(2)+" m\n";
-  t+="X Coord:          "+i.xCoord.toFixed(2)+"\n";
-  if(i.layer){
-    t+="\nLAYER INFORMATION\n";
-    t+="Layer:            "+i.layer.name+"\n";
-    t+="Type:             "+i.layer.type+"\n";
-    t+="Age:              "+i.layer.age+"\n";
-    t+="Density:          "+i.density.toFixed(2)+" g/cm³\n";
-    t+="Gravel Ratio:     "+i.gravel.toFixed(1)+" %\n";
-    t+="Moisture:         "+i.moisture.toFixed(1)+" %\n";
-    t+="Magnetic Susc.:   "+i.magnetic.toFixed(2)+"\n";
-    t+="Composition:      "+i.layer.comp+"\n";
-    t+="Note:             "+i.layer.note+"\n";
-  }
-  text(t, marginX, marginY);
-}
-
-function drawAnomalyIndicator(layer){
-  let baseProb=0.002;
-  if(!layer) layer={};
-  if(layer.name && (layer.name.includes("Layer 4")||layer.name.includes("Layer 5")||layer.name.includes("Layer 6"))) baseProb=0.01;
-  if(random()<baseProb){
-    push();
-    fill(255,200,50,180); noStroke();
-    rect(width-140,20,120,36,6);
-    fill(20); textSize(12); textAlign(LEFT);
-    text("ANOMALY DETECTED", width-130,43);
-    pop();
-  }
-}
-
+// ---------- 绘制函数保持原样 ----------
+function drawGrid(){ stroke(0,255,100,50); for(let x=0;x<width;x+=40) line(x,0,x,height); for(let y=0;y<height;y+=40) line(0,y,width,y);}
+function drawFrameLines(){ stroke(0,255,80); strokeWeight(2); let m=20; line(m,m,m+60,m); line(m,m,m,m+60); line(width-m,m,width-m-60,m); line(width-m,m,width-m,m+60); line(m,height-m,m+60,height-m); line(m,height-m,m,height-m-60); line(width-m,height-m,width-m-60,height-m); line(width-m,height-m,width-m,height-m-60);}
+function drawCrosshair(){ stroke(0,255,0); strokeWeight(2); let cx=width/2,cy=height/2; line(cx-20,cy,cx+20,cy); line(cx,cy-20,cx,cy+20); noFill(); stroke(0,255,120,40); strokeWeight(1.5); ellipse(cx,cy,36+sin(millis()/400)*4,36+sin(millis()/400)*4);}
+function drawHUD(i){ fill(0,255,100); textSize(12); textAlign(LEFT); let marginX=18,marginY=24; let t=""; t+="SCAN DATA\n"; t+="--------------------------------------\n"; t+="Elevation:        "+i.elevation.toFixed(2)+" m\n"; t+="Depth:            "+i.depth.toFixed(2)+" m\n"; t+="X Coord:          "+i.xCoord.toFixed(2)+"\n"; if(i.layer){ t+="\nLAYER INFORMATION\n"; t+="Layer:            "+i.layer.name+"\n"; t+="Type:             "+i.layer.type+"\n"; t+="Age:              "+i.layer.age+"\n"; t+="Density:          "+i.density.toFixed(2)+" g/cm³\n"; t+="Gravel Ratio:     "+i.gravel.toFixed(1)+" %\n"; t+="Moisture:         "+i.moisture.toFixed(1)+" %\n"; t+="Magnetic Susc.:   "+i.magnetic.toFixed(2)+"\n"; t+="Composition:      "+i.layer.comp+"\n"; t+="Note:             "+i.layer.note+"\n"; } text(t,marginX,marginY);}
+function drawAnomalyIndicator(layer){ let baseProb=0.002; if(!layer) layer={}; if(layer.name&&(layer.name.includes("Layer 4")||layer.name.includes("Layer 5")||layer.name.includes("Layer 6"))) baseProb=0.01; if(random()<baseProb){ push(); fill(255,200,50,180); noStroke(); rect(width-140,20,120,36,6); fill(20); textSize(12); textAlign(LEFT); text("ANOMALY DETECTED",width-130,43); pop(); }}
