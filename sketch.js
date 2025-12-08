@@ -38,14 +38,16 @@ function setup() {
   let c = createCanvas(360, 640);
   c.id('hudCanvas');
 
+  navigator.mediaDevices.enumerateDevices().then(devices => {
+  let videoDevices = devices.filter(d => d.kind === "videoinput");
+  let backCamera = videoDevices.find(d => d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("rear"));
+  let deviceId = backCamera ? backCamera.deviceId : undefined;
+  
   let constraints = {
-  video: {
-    facingMode: { facingMode: "environment" }, // 后置摄像头
-    width: { ideal: 1280 },
-    height: { ideal: 720 }
-  },
-  audio: false
-};
+    video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: 1280, height: 720 },
+    audio: false
+  };
+  cam = createCapture(constraints);
 cam = createCapture(constraints);
 
   cam.id('cameraElement');
