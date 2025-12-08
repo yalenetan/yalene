@@ -1,5 +1,6 @@
 // ----------------------
-// 地层数据（真实周口店+扩展字段）  （完整保留）
+// 地层数据（真实周口店+扩展字段）
+// ----------------------
 let layers = [
   {name:"Layer 1", type:"表土层", age:"近现代", top:131.00, bottom:129.50, density:[1.2,1.4], gravel:[0,2], moisture:[8,12], magnetic:[0.1,0.3], comp:"表层混合土壤", note:"受现代扰动明显"},
   {name:"Layer 2", type:"黄土状砂质粘土", age:"全新世", top:129.50, bottom:128.00, density:[1.4,1.6], gravel:[2,5], moisture:[10,14], magnetic:[0.2,0.5], comp:"粉砂与粘土混合", note:"局部风化"},
@@ -22,69 +23,72 @@ const X_LEFT = 94.5;
 const X_RIGHT = 118.5;
 
 // 平滑变量
-let smooth = {
-  density: 0, targetDensity: 0,
-  gravel: 0, targetGravel: 0,
-  moisture: 0, targetMoisture: 0,
-  magnetic: 0, targetMagnetic: 0
-};
+let smooth = { density:0,targetDensity:0, gravel:0,targetGravel:0, moisture:0,targetMoisture:0, magnetic:0,targetMagnetic:0 };
 let lastUpdate = 0;
-let interval = 300; // ms
+let interval = 300;
 
-// 摄像头
+// 摄像头 & canvas 句柄
 let cam;
 
 function setup() {
-  let c = createCanvas(360, 640);
+  let c = createCanvas(windowWidth, windowHeight);
   c.id('hudCanvas');
+  c.style('position','absolute'); c.style('top','0px'); c.style('left','0px'); c.style('z-index','2'); c.style('background','transparent');
+  textFont('monospace'); noCursor();
 
-  navigator.mediaDevices.enumerateDevices().then(devices => {
-  let videoDevices = devices.filter(d => d.kind === "videoinput");
-  let backCamera = videoDevices.find(d => d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("rear"));
-  let deviceId = backCamera ? backCamera.deviceId : undefined;
-  
-  let constraints = {
-    video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: 1280, height: 720 },
-    audio: false
-  };
-  cam = createCapture(constraints);
-cam = createCapture(constraints);
-
-  cam.id('cameraElement');
-  cam.size(windowWidth, windowHeight);
-  cam.elt.setAttribute('playsinline', '');
-  cam.elt.setAttribute('autoplay', '');
-  cam.style('position', 'absolute');
-  cam.style('top', '0px');
-  cam.style('left', '0px');
-  cam.style('z-index', '1');
-  cam.style('object-fit', 'cover');
-
-  c.style('position', 'absolute');
-  c.style('top', '0px');
-  c.style('left', '0px');
-  c.style('z-index', '2');
-  c.style('background', 'transparent');
-
-  textFont('monospace');
-  noCursor();
-
+  // 初始化 smooth
   let L0 = layers[0];
-  smooth.density   = (L0.density[0]+L0.density[1])/2;
-  smooth.gravel    = (L0.gravel[0]+L0.gravel[1])/2;
-  smooth.moisture  = (L0.moisture[0]+L0.moisture[1])/2;
-  smooth.magnetic  = (L0.magnetic[0]+L0.magnetic[1])/2;
+  smooth.density   = (L0.density[0] + L0.density[1]) / 2;
+  smooth.gravel    = (L0.gravel[0]  + L0.gravel[1])  / 2;
+  smooth.moisture  = (L0.moisture[0]+ L0.moisture[1]) / 2;
+  smooth.magnetic  = (L0.magnetic[0]+ L0.magnetic[1]) / 2;
+
+  // 点击按钮启动摄像头
+  const startBtn = document.getElementById('startCam');
+  startBtn.addEventListener('click', async () => {
+    await startCamera();
+    startBtn.style.display = 'none';
+  });
+}
+
+async function startCamera() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+    let backCamera = videoDevices.find(d => d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("rear"));
+    let deviceId = backCamera ? backCamera.deviceId : undefined;
+
+    const constraints = {
+      video: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: deviceId ? undefined : { exact: "environment" }
+      },
+      audio: false
+    };
+
+    cam = createCapture(constraints);
+    cam.id('cameraElement');
+    cam.elt.setAttribute('playsinline','');
+    cam.elt.setAttribute('autoplay','');
+    cam.style('position','absolute');
+    cam.style('top','0px');
+    cam.style('left','0px');
+    cam.style('z-index','1');
+    cam.style('object-fit','cover');
+  } catch (e) {
+    console.error("Camera error:", e);
+  }
 }
 
 function windowResized(){
   resizeCanvas(windowWidth, windowHeight);
-  cam.size(windowWidth, windowHeight);
+  if(cam) cam.size(windowWidth, windowHeight);
 }
 
 function findLayerByElevation(elev){
-  for(let l of layers){
-    if(elev<=l.top && elev>=l.bottom) return l;
-  }
+  for(let l of layers) if(elev<=l.top && elev>=l.bottom) return l;
   return layers[layers.length-1];
 }
 
@@ -94,7 +98,6 @@ function draw(){
   drawFrameLines();
   drawCrosshair();
 
-  // 屏幕中心
   const cx = width/2;
   const cy = height/2;
 
@@ -117,14 +120,13 @@ function draw(){
   smooth.moisture = lerp(smooth.moisture, smooth.targetMoisture, 0.05);
   smooth.magnetic = lerp(smooth.magnetic, smooth.targetMagnetic, 0.05);
 
-  // 抖动
   let jitterX = (noise(frameCount*0.002)-0.5)*0.6;
   let jitterY = (noise(frameCount*0.002+1000)-0.5)*0.6;
-  let displayElevation = elevation_center+jitterY;
-  let displayX = geoX_center+jitterX;
-  let displayDepth = maxElevation-displayElevation;
 
-  // HUD 左上角偏移避免与边框重合
+  let displayElevation = elevation_center + jitterY;
+  let displayX = geoX_center + jitterX;
+  let displayDepth = maxElevation - displayElevation;
+
   drawHUD({
     elevation: displayElevation,
     depth: displayDepth,
@@ -134,19 +136,17 @@ function draw(){
     gravel: smooth.gravel,
     moisture: smooth.moisture,
     magnetic: smooth.magnetic
-  }, 20, 20);
+  });
 
   drawAnomalyIndicator(currentLayer);
 
   noStroke();
   fill(0,255,120,120);
-  textAlign(CENTER);
-  textSize(12);
+  textAlign(CENTER); textSize(12);
   text("PLACE TARGET UNDER THE CROSSHAIR TO SCAN", width/2, height-18);
 }
 
-// ----------------------
-// 绘制函数
+// ---------- 绘制函数 ----------
 function drawGrid(){
   stroke(0,255,100,50);
   for(let x=0;x<width;x+=40) line(x,0,x,height);
@@ -164,7 +164,7 @@ function drawFrameLines(){
 
 function drawCrosshair(){
   stroke(0,255,0); strokeWeight(2);
-  let cx=width/2, cy=height/2;
+  let cx = width/2, cy = height/2;
   line(cx-20,cy,cx+20,cy);
   line(cx,cy-20,cx,cy+20);
   noFill();
@@ -172,11 +172,11 @@ function drawCrosshair(){
   ellipse(cx,cy,36+sin(millis()/400)*4,36+sin(millis()/400)*4);
 }
 
-function drawHUD(i, offsetX=18, offsetY=24){
+function drawHUD(i){
   fill(0,255,100); textSize(12); textAlign(LEFT);
+  let marginX=18, marginY=24;
   let t="";
-  t+="SCAN DATA\n";
-  t+="--------------------------------------\n";
+  t+="SCAN DATA\n--------------------------------------\n";
   t+="Elevation:        "+i.elevation.toFixed(2)+" m\n";
   t+="Depth:            "+i.depth.toFixed(2)+" m\n";
   t+="X Coord:          "+i.xCoord.toFixed(2)+"\n";
@@ -192,7 +192,7 @@ function drawHUD(i, offsetX=18, offsetY=24){
     t+="Composition:      "+i.layer.comp+"\n";
     t+="Note:             "+i.layer.note+"\n";
   }
-  text(t, offsetX, offsetY);
+  text(t, marginX, marginY);
 }
 
 function drawAnomalyIndicator(layer){
