@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" />
+  <title>Koukou AR HUD</title>
+  <style>
+    html,body { height:100%; margin:0; background:#000; }
+    /* 让 video 在页面最底层，canvas 叠在上面 */
+    #cameraElement {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+      transform: scaleX(-1); /* 镜像以匹配用户习惯（可删） */
+    }
+    #hudCanvas {
+      position: absolute;
+      top: 0; left: 0;
+      z-index: 2;
+      pointer-events: none; /* 让页面下层可互动（如果需要）*/
+      background: transparent; /* 关键：透明画布背景 */
+    }
+    /* 可选：如果你想给页面本身黑色背景去掉，设置 body 背景透明 */
+  </style>
+</head>
+<body>
+  <!-- 摄像头元素（由 p5 创建，也可以保留） -->
+  <!-- p5 will insert the <video> and <canvas> elements; we will style them in sketch.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+  <script src="sketch.js"></script>
+</body>
+</html>
