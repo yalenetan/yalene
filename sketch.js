@@ -38,7 +38,16 @@ function setup() {
   let c = createCanvas(360, 640);
   c.id('hudCanvas');
 
-  cam = createCapture(VIDEO);
+  let constraints = {
+  video: {
+    facingMode: { exact: "environment" }, // 后置摄像头
+    width: { ideal: 1280 },
+    height: { ideal: 720 }
+  },
+  audio: false
+};
+cam = createCapture(constraints);
+
   cam.id('cameraElement');
   cam.size(windowWidth, windowHeight);
   cam.elt.setAttribute('playsinline', '');
