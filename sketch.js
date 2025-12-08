@@ -40,7 +40,7 @@ function setup() {
 
   let constraints = {
   video: {
-    facingMode: { exact: "environment" }, // 后置摄像头
+    facingMode: { facingMode: "environment" }, // 后置摄像头
     width: { ideal: 1280 },
     height: { ideal: 720 }
   },
