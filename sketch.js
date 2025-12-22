@@ -113,6 +113,11 @@ function draw(){
   const img = cam.get(); // p5.Image
   const detections = detector.detect(img.canvas || img.elt); // 识别结果
   tags = detections;
+  
+  detections.forEach(det => {
+  console.log("Detected tag:", det.id, det.corners);
+});
+
 
   // 按你想要顺序对应 ID
   tags.forEach(t => {
@@ -152,6 +157,21 @@ async function draw(){
   if (!cameraStarted) return; // 摄像头未启动就不计算数据
 
   await detectTags(); // 识别 tag
+
+ function drawTag(ctx, det) {
+  const c = det.corners;
+  ctx.strokeStyle = "lime";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(c[0].x, c[0].y);
+  c.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.fillStyle = "lime";
+  ctx.fillText(det.id, c[0].x + 5, c[0].y - 5);
+}
+
   
   const cx = width/2;
   const cy = height/2;
