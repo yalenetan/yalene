@@ -1,5 +1,5 @@
 // ----------------------
-// 地层数据（真实周口店+扩展字段）  （完全保留）
+// 地层数据（完全保留）
 // ----------------------
 let layers = [
   {name:"Layer 1", type:"表土层", age:"近现代", top:131.00, bottom:129.50, density:[1.2,1.4], gravel:[0,2], moisture:[8,12], magnetic:[0.1,0.3], comp:"表层混合土壤", note:"受现代扰动明显"},
@@ -22,41 +22,49 @@ const minElevation = 95.00;
 const X_LEFT = 94.5;
 const X_RIGHT = 118.5;
 
-// 平滑变量（保持原逻辑）
-let smooth = { density:0, targetDensity:0, gravel:0, targetGravel:0, moisture:0, targetMoisture:0, magnetic:0, targetMagnetic:0 };
+// ----------------------
+// 平滑变量（原逻辑）
+// ----------------------
+let smooth = {
+  density:0, targetDensity:0,
+  gravel:0, targetGravel:0,
+  moisture:0, targetMoisture:0,
+  magnetic:0, targetMagnetic:0
+};
 let lastUpdate = 0;
-let interval = 300; // ms
+let interval = 300;
 
-let tags = [];       // apriltag 识别结果
-let TL, TR, BR, BL;  // 四角 tag 坐标
-let homographyReady = false;
-
-
-// 摄像头 & canvas 句柄
+// ----------------------
+// 摄像头 & Apriltag
+// ----------------------
 let cam;
 let cameraStarted = false;
 
-function setup() {
+let detector = null;
+let TL=null, TR=null, BR=null, BL=null;
+let homographyReady = false;
+let showTagSuccessHint = false;
+
+// ----------------------
+// setup
+// ----------------------
+async function setup() {
   let c = createCanvas(windowWidth, windowHeight);
   c.id('hudCanvas');
   textFont('monospace');
   noCursor();
 
-  let detector;
-async function initAprilTag(){
-  detector = await Apriltag.createDetector({families: 'tag36h11'});
-}
+  detector = await Apriltag.createDetector({
+    families: 'tag36h11'
+  });
 
-  // init smooth values to first layer midpoints
   let L0 = layers[0];
   smooth.density   = (L0.density[0]+L0.density[1])/2;
   smooth.gravel    = (L0.gravel[0]+L0.gravel[1])/2;
   smooth.moisture  = (L0.moisture[0]+L0.moisture[1])/2;
   smooth.magnetic  = (L0.magnetic[0]+L0.magnetic[1])/2;
 
-  // 创建按钮
   let btn = createButton("启动摄像头");
-  btn.id("startCam");
   btn.style("position","absolute");
   btn.style("top","40%");
   btn.style("left","50%");
@@ -76,103 +84,71 @@ function windowResized(){
   if (cam) cam.size(windowWidth, windowHeight);
 }
 
+// ----------------------
+// 摄像头
+// ----------------------
 async function startCamera() {
+  const constraints = {
+    video: {
+      facingMode: { exact: "environment" },
+      width: { ideal: 1280 },
+      height:{ ideal: 720 }
+    },
+    audio: false
+  };
+  cam = createCapture(constraints);
+  cam.id('cameraElement');
+  cam.elt.setAttribute('playsinline','');
+  cam.style('position','absolute');
+  cam.style('top','0');
+  cam.style('left','0');
+  cam.style('z-index','1');
+  cam.style('object-fit','cover');
+}
+
+// ----------------------
+// Apriltag 识别（关键）
+// ----------------------
+function detectTagsOnce(){
+  if (!cameraStarted || !detector || !cam) return;
+  if (homographyReady) return;
+  if (cam.elt.videoWidth === 0) return;
+
+  let img = cam.get();
+  let detections = [];
+
   try {
-    const constraints = {
-      video: {
-        facingMode: { exact: "environment" }, // 后置摄像头
-        width: { ideal: 1280 },
-        height:{ ideal: 720 }
-      },
-      audio: false
-    };
-    cam = createCapture(constraints);
-    cam.id('cameraElement');
-    cam.elt.setAttribute('playsinline','');
-    cam.elt.setAttribute('autoplay','');
-    cam.style('position','absolute');
-    cam.style('top','0px');
-    cam.style('left','0px');
-    cam.style('z-index','1');
-    cam.style('object-fit','cover');
-  } catch(e){
-    console.error("Camera error:", e);
+    detections = detector.detect(img.canvas || img.elt);
+  } catch(e){ return; }
+
+  detections.forEach(det=>{
+    console.log("Detected tag:", det.id);
+    if(det.id===0) TL=det.corners;
+    if(det.id===1) TR=det.corners;
+    if(det.id===2) BR=det.corners;
+    if(det.id===3) BL=det.corners;
+  });
+
+  if(TL&&TR&&BR&&BL){
+    homographyReady = true;
+    showTagSuccessHint = true;
+    console.log("Homography ready");
   }
 }
 
-function findLayerByElevation(elev){
-  for (let l of layers) if (elev<=l.top && elev>=l.bottom) return l;
-  return layers[layers.length-1];
-}
-
+// ----------------------
+// draw
+// ----------------------
 function draw(){
-
-  async function detectTags(){
-  if(!cameraStarted || !detector) return;
-
-  const img = cam.get(); // p5.Image
-  const detections = detector.detect(img.canvas || img.elt); // 识别结果
-  tags = detections;
-  
-  detections.forEach(det => {
-  console.log("Detected tag:", det.id, det.corners);
-});
-
-
-  // 按你想要顺序对应 ID
-  tags.forEach(t => {
-    if(t.id === 0) TL = t.corners; // 左上
-    if(t.id === 1) TR = t.corners; // 右上
-    if(t.id === 2) BR = t.corners; // 右下
-    if(t.id === 3) BL = t.corners; // 左下
-  });
-
-  // 检测到四角才算 homography 可用
-  homographyReady = TL && TR && BR && BL;
-}
-
-// ---- homography 映射函数 ----
-// srcPoints: [TL, TR, BR, BL] 对应的屏幕坐标
-// dstPoints: 对应板上的逻辑坐标 (0,0 - 左上，60cm x 120cm)
-function applyHomography(x, y, srcPoints, dstPoints){
-  // 这里可以用简化的透视变换算法，例如 bilinear 或开源库
-  // p5.js 里可用 applyMatrix 或 createGraphics 结合 translate/scale/quad
-  // 简单示意：
-  if(!homographyReady) return {x,y};
-
-  // 伪代码: 假设 dstPoints 已经是 normalized 0-1 坐标
-  let u = (x - srcPoints[0][0]) / (srcPoints[1][0]-srcPoints[0][0]);
-  let v = (y - srcPoints[0][1]) / (srcPoints[2][1]-srcPoints[0][1]);
-  let mappedX = lerp(dstPoints[0][0], dstPoints[1][0], u);
-  let mappedY = lerp(dstPoints[0][1], dstPoints[3][1], v);
-  return {x: mappedX, y: mappedY};
-}
-
-async function draw(){
   clear();
+  detectTagsOnce();
+
   drawGrid();
   drawFrameLines();
   drawCrosshair();
 
-  if (!cameraStarted) return; // 摄像头未启动就不计算数据
+  if (!cameraStarted) return;
 
-  await detectTags(); // 识别 tag
-
- function drawTag(ctx, det) {
-  const c = det.corners;
-  ctx.strokeStyle = "lime";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(c[0].x, c[0].y);
-  c.forEach(p => ctx.lineTo(p.x, p.y));
-  ctx.closePath();
-  ctx.stroke();
-
-  ctx.fillStyle = "lime";
-  ctx.fillText(det.id, c[0].x + 5, c[0].y - 5);
-}
-
-  
   const cx = width/2;
   const cy = height/2;
 
@@ -180,14 +156,14 @@ async function draw(){
   const depth_center = maxElevation - elevation_center;
   const geoX_center = map(cx,0,width,X_LEFT,X_RIGHT);
 
-  let currentLayer = findLayerByElevation(elevation_center);
+  let currentLayer = layers.find(l=>elevation_center<=l.top && elevation_center>=l.bottom) || layers[layers.length-1];
 
-  if (currentLayer && millis()-lastUpdate>interval){
+  if (millis()-lastUpdate>interval){
     lastUpdate = millis();
-    smooth.targetDensity   = random(currentLayer.density[0],currentLayer.density[1]);
-    smooth.targetGravel    = random(currentLayer.gravel[0],currentLayer.gravel[1]);
-    smooth.targetMoisture  = random(currentLayer.moisture[0],currentLayer.moisture[1]);
-    smooth.targetMagnetic  = random(currentLayer.magnetic[0],currentLayer.magnetic[1]);
+    smooth.targetDensity  = random(...currentLayer.density);
+    smooth.targetGravel   = random(...currentLayer.gravel);
+    smooth.targetMoisture = random(...currentLayer.moisture);
+    smooth.targetMagnetic = random(...currentLayer.magnetic);
   }
 
   smooth.density  = lerp(smooth.density, smooth.targetDensity, 0.05);
@@ -195,53 +171,49 @@ async function draw(){
   smooth.moisture = lerp(smooth.moisture, smooth.targetMoisture, 0.05);
   smooth.magnetic = lerp(smooth.magnetic, smooth.targetMagnetic, 0.05);
 
-  let jitterX = (noise(frameCount*0.002)-0.5)*0.6;
-  let jitterY = (noise(frameCount*0.002+1000)-0.5)*0.6;
-
-  let displayElevation = elevation_center + jitterY;
-  let displayX = geoX_center + jitterX;
-  let displayDepth = maxElevation - displayElevation;
-
-  
-  // ---- 应用透视映射 ----
-  function applyHomography(x, y, srcPoints, dstPoints){
-  // 这里可以用简化的透视变换算法，例如 bilinear 或开源库
-  // p5.js 里可用 applyMatrix 或 createGraphics 结合 translate/scale/quad
-  // 简单示意：
-  if(!homographyReady) return {x,y};
-
-  // 伪代码: 假设 dstPoints 已经是 normalized 0-1 坐标
-  let u = (x - srcPoints[0][0]) / (srcPoints[1][0]-srcPoints[0][0]);
-  let v = (y - srcPoints[0][1]) / (srcPoints[2][1]-srcPoints[0][1]);
-  let mappedX = lerp(dstPoints[0][0], dstPoints[1][0], u);
-  let mappedY = lerp(dstPoints[0][1], dstPoints[3][1], v);
-  return {x: mappedX, y: mappedY};
-}
-
-
   drawHUD({
-    elevation: displayElevation,
-    depth: displayDepth,
-    xCoord: displayX,
-    layer: currentLayer,
-    density: smooth.density,
-    gravel: smooth.gravel,
-    moisture: smooth.moisture,
-    magnetic: smooth.magnetic
+    elevation:elevation_center,
+    depth:depth_center,
+    xCoord:geoX_center,
+    layer:currentLayer,
+    density:smooth.density,
+    gravel:smooth.gravel,
+    moisture:smooth.moisture,
+    magnetic:smooth.magnetic
   });
 
-  drawAnomalyIndicator(currentLayer);
-
-  noStroke();
-  fill(0,255,120,120);
-  textAlign(CENTER);
-  textSize(12);
-  text("PLACE TARGET UNDER THE CROSSHAIR TO SCAN", width/2, height - 18);
+  if(showTagSuccessHint){
+    fill(0,255,120);
+    textAlign(CENTER);
+    textSize(16);
+    text("识别成功", width/2, 60);
+  }
 }
 
-// ---------- 绘制函数保持原样 ----------
+// ----------------------
+// 绘制函数（原样）
+// ----------------------
 function drawGrid(){ stroke(0,255,100,50); for(let x=0;x<width;x+=40) line(x,0,x,height); for(let y=0;y<height;y+=40) line(0,y,width,y);}
 function drawFrameLines(){ stroke(0,255,80); strokeWeight(2); let m=20; line(m,m,m+60,m); line(m,m,m,m+60); line(width-m,m,width-m-60,m); line(width-m,m,width-m,m+60); line(m,height-m,m+60,height-m); line(m,height-m,m,height-m-60); line(width-m,height-m,width-m-60,height-m); line(width-m,height-m,width-m,height-m-60);}
-function drawCrosshair(){ stroke(0,255,0); strokeWeight(2); let cx=width/2,cy=height/2; line(cx-20,cy,cx+20,cy); line(cx,cy-20,cx,cy+20); noFill(); stroke(0,255,120,40); strokeWeight(1.5); ellipse(cx,cy,36+sin(millis()/400)*4,36+sin(millis()/400)*4);}
-function drawHUD(i){ fill(0,255,100); textSize(12); textAlign(LEFT); let marginX=18,marginY=24; let t=""; t+="SCAN DATA\n"; t+="--------------------------------------\n"; t+="Elevation:        "+i.elevation.toFixed(2)+" m\n"; t+="Depth:            "+i.depth.toFixed(2)+" m\n"; t+="X Coord:          "+i.xCoord.toFixed(2)+"\n"; if(i.layer){ t+="\nLAYER INFORMATION\n"; t+="Layer:            "+i.layer.name+"\n"; t+="Type:             "+i.layer.type+"\n"; t+="Age:              "+i.layer.age+"\n"; t+="Density:          "+i.density.toFixed(2)+" g/cm³\n"; t+="Gravel Ratio:     "+i.gravel.toFixed(1)+" %\n"; t+="Moisture:         "+i.moisture.toFixed(1)+" %\n"; t+="Magnetic Susc.:   "+i.magnetic.toFixed(2)+"\n"; t+="Composition:      "+i.layer.comp+"\n"; t+="Note:             "+i.layer.note+"\n"; } text(t,marginX,marginY);}
-function drawAnomalyIndicator(layer){ let baseProb=0.002; if(!layer) layer={}; if(layer.name&&(layer.name.includes("Layer 4")||layer.name.includes("Layer 5")||layer.name.includes("Layer 6"))) baseProb=0.01; if(random()<baseProb){ push(); fill(255,200,50,180); noStroke(); rect(width-140,20,120,36,6); fill(20); textSize(12); textAlign(LEFT); text("ANOMALY DETECTED",width-130,43); pop(); }}
+function drawCrosshair(){ stroke(0,255,0); strokeWeight(2); let cx=width/2,cy=height/2; line(cx-20,cy,cx+20,cy); line(cx,cy-20,cx,cy+20);}
+function drawHUD(i){
+  fill(0,255,100);
+  textSize(12);
+  textAlign(LEFT);
+  let x=18,y=24;
+  let t=`SCAN DATA
+--------------------------------------
+Elevation: ${i.elevation.toFixed(2)}
+Depth:     ${i.depth.toFixed(2)}
+X Coord:   ${i.xCoord.toFixed(2)}
+
+Layer: ${i.layer.name}
+Type:  ${i.layer.type}
+Age:   ${i.layer.age}
+Density: ${i.density.toFixed(2)}
+Gravel:  ${i.gravel.toFixed(1)}
+Moisture:${i.moisture.toFixed(1)}
+Magnetic:${i.magnetic.toFixed(2)}
+`;
+  text(t,x,y);
+}
